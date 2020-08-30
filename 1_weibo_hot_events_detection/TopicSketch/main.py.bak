@@ -1,0 +1,62 @@
+__author__ = 'Wei Xie'
+__email__ = 'linegroup3@gmail.com'
+__affiliation__ = 'Pinnacle Lab for Analytics, Singapore Management University'
+__website__ = 'http://mysmu.edu/phdis2012/wei.xie.2012'
+
+import time, datetime
+
+import numpy as np
+from topic_sketch import topic_sketch as ts, preprocessor
+from topic_sketch import stream as ts_stream
+from experiment import tweet_stream, detection
+from experiment import tweet_stream_from_file, tweet_stream_from_file2
+
+
+def main():
+    stream = tweet_stream.TweetStreamFromDB()
+    #stream = tweet_stream_from_file2.TweetStreamFromFile(datetime.datetime(2015, 8, 1))
+
+
+    _preprocessor = preprocessor.Preprocessor(stream)
+
+    detection_component = detection.DetectionComponent(_preprocessor)
+
+    sketch = ts.TopicSketch()
+
+    count = 0
+    while True:
+
+        result = detection_component.next()
+
+        '''
+        if np.random.random() < 0.001:
+            count += 1
+            print 'Processing ' + str(count) + 'K'
+            '''
+
+        if result is ts_stream.End_Of_Stream:
+            return ts_stream.End_Of_Stream
+
+        if result is None:
+            continue
+
+        ptweet, sig, keywords = result
+
+        if np.random.random() < 0.001:
+            count += 1
+            print 'Processing ' + str(count) + 'K\t' + str(ptweet.datetime())
+
+        #sketch.process(ptweet)
+
+        #sketch.run_time_infer()
+
+'''
+import numpy as np
+import topic_sketch.fast_hashing as fast_hashing
+def test_hash():
+    print np.array(fast_hashing.hash_code(u'lord')) % 5000'''
+
+if __name__ == "__main__":
+    main()
+    #tweet_stream_from_file2.test2()
+    #detection.test()
