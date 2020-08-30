@@ -1,0 +1,81 @@
+[data]
+name = twitter
+
+[pre_process]
+stemmer = None #Snowball or Porter or Lancaster
+
+[database]
+host = X.X.X.X
+user = ...
+db = ...
+charset = utf8
+
+[stream]
+host = X.X.X.X
+
+start_y = ?
+start_m = ?
+start_d = ?
+
+end_y = ?
+end_m = ?
+end_d = ?
+
+[detection]
+start_y = ?
+start_m = ?
+start_d = ?
+
+window_size = 24*60
+cycle = 7*24*60
+average = 10.0/(24*60)
+
+threshold_for_cleaning = 0.1
+capacity_for_cleaning = 10000000
+
+signi_threshold = 15.0
+
+thread_gap = 2*60
+
+
+[sketch]
+type = topicsketch
+
+cut_timestamp = False
+
+smoother = EWMASmoother
+
+lambda = 1e-4
+unit_size = 60.
+window_size = 1.
+window_size1 = 15.
+window_size2 = 20.
+
+sketch_bucket_size = 5000
+num_topics = 15
+probability_threshold = 0.0035
+active_window_size = 0   # minutes
+
+threshold_for_cleaning = math.exp(-9.0)
+capacity_for_cleaning = 5000*5000/5
+
+#start_y = 2010
+#start_m = 6
+#start_d = 1
+
+#end_y = 2010
+#end_m = 6
+#end_d = 15
+
+max_number_words = 10
+
+[post_process]
+threshold_for_similarity = 2.0
+topic_number_related_users = 30
+topic_number_related_tweets = 30
+word_number_related_users = 3
+word_number_related_tweets = 3
+
+[distribution]
+number_slices = 10
+

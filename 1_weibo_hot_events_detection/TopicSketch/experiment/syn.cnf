@@ -1,0 +1,63 @@
+[data]
+name = syn
+
+[pre_process]
+stemmer = None #Snowball or Porter or Lancaster
+
+[detection]
+start_y = 2015
+start_m = 3
+start_d = 9
+
+end_y = 2015
+end_m = 3
+end_d = 10
+
+window_size = 15
+cycle = 24*60
+average = 7.0/15  #15.0/(15)
+
+threshold_for_cleaning = 1e-3
+capacity_for_cleaning = 50000000
+
+signi_threshold = 0.65
+
+thread_gap = 30
+
+
+[sketch]
+type = topicsketch
+
+cut_timestamp = False
+
+smoother = EWMASmoother
+
+lambda = 1e-4
+unit_size = 60.
+window_size = 1.
+window_size1 = 15.
+window_size2 = 20.
+
+sketch_bucket_size = 10
+num_topics = 5
+probability_threshold = 0.0035
+active_window_size = 15   # minutes
+
+threshold_for_cleaning = math.exp(-9.0)
+capacity_for_cleaning = 5000*5000/5
+
+#start_y = 2010
+#start_m = 6
+#start_d = 1
+
+#end_y = 2010
+#end_m = 6
+#end_d = 15
+
+[post_process]
+threshold_for_similarity = 2.0
+number_related_users = 1
+number_related_tweets = 10
+
+[distribution]
+number_slices = 3

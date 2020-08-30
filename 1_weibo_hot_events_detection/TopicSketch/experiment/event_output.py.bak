@@ -1,0 +1,50 @@
+__author__ = 'Wei Xie'
+__email__ = 'linegroup3@gmail.com'
+__affiliation__ = 'Pinnacle Lab for Analytics, Singapore Management University'
+__website__ = 'http://mysmu.edu/phdis2012/wei.xie.2012'
+
+import json
+
+import redis
+
+import exp_config
+
+_KEY_EVENT_CHANNEL = 'twitter:sg:event:python:test2'
+_KEY_EVENT_PREFIX = _KEY_EVENT_CHANNEL + ':'
+_KEY_EVENT_LATEST_EVENT_ID = _KEY_EVENT_PREFIX + 'next_event_Id'
+_KEY_EVENT_LATEST_TOPIC_ID = _KEY_EVENT_PREFIX + 'next_topic_Id'
+_KEY_EVENT_IDS = _KEY_EVENT_PREFIX + 'ids'
+_KEY_EVENT_TIMESTAMPS = _KEY_EVENT_PREFIX + 'timestamps'
+
+_HOST = exp_config.get('stream', 'host')
+
+
+def get_event_Id():
+
+    db = redis.StrictRedis(_HOST, port=8181)
+
+    return db.incr(_KEY_EVENT_LATEST_EVENT_ID)
+
+
+def get_topic_Id():
+
+    db = redis.StrictRedis(_HOST, port=8181)
+
+    return db.incr(_KEY_EVENT_LATEST_TOPIC_ID)
+
+
+def put(_id, _event):
+    print 'putting ... ' # debugging
+
+    db = redis.StrictRedis(_HOST, port=8181)
+
+    #print 'put:' + '\t' + str(_event)
+
+    #db.rpush(_KEY_EVENT_IDS, _id)
+    #db.rpush(_KEY_EVENT_TIMESTAMPS, _event['info']['dtime'])
+
+    key = _KEY_EVENT_PREFIX + str(_id);
+    db.set(key, json.dumps(_event));
+
+
+

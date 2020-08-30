@@ -1,0 +1,64 @@
+__author__ = 'Wei Xie'
+__email__ = 'linegroup3@gmail.com'
+__affiliation__ = 'Pinnacle Lab for Analytics, Singapore Management University'
+__website__ = 'http://mysmu.edu/phdis2012/wei.xie.2012'
+
+
+import time
+
+import json
+
+import redis
+
+import topic_sketch.stream as stream
+
+import exp_config
+
+
+_BUFFER_CHANNEL = "twitter:sg:event:buffer"
+
+_HOST = exp_config.get('stream', 'host')
+
+class TweetStreamFromDB(stream.ItemStream):
+
+    def __init__(self):
+        self.current_t = 0
+
+        self.db = redis.StrictRedis(_HOST, port=6379)
+
+    def peek(self):# get the latest timestamp in buffer
+        json_obj = self.db.lrange(_BUFFER_CHANNEL, 0, 0)
+        obj = json.loads(json_obj[0])
+        return obj['publishedTimeGmt']
+
+    def next(self):
+        if self.db.llen(_BUFFER_CHANNEL) == 0 or self.current_t >= self.peek():
+            print 'SLEEPING' #debugging
+            time.sleep(1)
+            return None
+
+        json_obj = self.db.lrange(_BUFFER_CHANNEL, -1, -1)
+        obj = json.loads(json_obj[0])
+        _t = obj['publishedTimeGmt'] / 1000
+        _user = obj['userId']
+        _tweet = obj['content']
+        item = stream.RawTweetItem(_t, _user, _tweet)
+
+        self.db.rpop(_BUFFER_CHANNEL)
+
+        self.current_t = _t
+
+        #print item.datetime() #debugging
+        return item
+
+def test():
+    tweet_stream = TweetStreamFromDB()
+
+    count = 0
+
+    while tweet_stream.next() is not None:
+        count += 1
+
+    print count
+
+

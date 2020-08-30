@@ -1,0 +1,413 @@
+__author__ = 'Wei Xie'
+__email__ = 'linegroup3@gmail.com'
+__affiliation__ = 'Pinnacle Lab for Analytics, Singapore Management University'
+__website__ = 'http://mysmu.edu/phdis2012/wei.xie.2012'
+
+
+import datetime
+
+import signi_processor
+
+import fast_signi
+
+import topic_sketch.stream as ts_stream
+
+import exp_config
+
+import event_output
+
+import topic_sketch.preprocessor as preprocessor
+
+
+_THREAD_GAP = eval(exp_config.get('detection', 'thread_gap'))
+
+
+class Keyword:
+
+    def __init__(self, _word):
+        self.word = _word
+        self.records = list()
+
+    def appear(self, _t, _sig):
+        self.records.append((_t, _sig))
+
+    def span(self):
+        return (self.records[-1][0] - self.records[0][0]).total_seconds() / (60*60) #hours
+
+    def print_self(self):
+        print self.word + '\t' + str(self.records)
+
+
+class Slice:
+
+    def __init__(self):
+        self.start = 0.0
+        self.end = 0.0
+        self.keywords = dict()
+        self.sig = 0.0
+        self.thread = []
+
+        self.event_id = -1
+
+    def ordered_keywords(self):
+        return sorted(self.keywords, key = lambda x : self.keywords[x].span(), reverse=True)
+
+    def output_event(self):
+        if self.event_id == -1:
+            self.event_id = event_output.get_event_Id()
+
+        topic_id = event_output.get_topic_Id()
+
+        _event = dict()
+        _info = dict()
+        _event['eid'] = self.event_id
+        _event['topicID'] = topic_id
+        _event['info'] = _info
+
+        _info['dtime'] = str(self.start)
+        _info['ctime'] = str(self.end)
+
+        tweets = preprocessor.active_term_maintainer.relevant_tweets(set(self.keywords.keys()))
+
+        users = set()
+        num_rt = 0.0
+        for tweet in tweets:
+            users.add(tweet.uid)
+            if tweet.is_retweet():
+                num_rt += 1.
+
+        # to ascii
+        tokens = list()
+        for x in self.ordered_keywords():
+            try:
+                x.encode('ascii','ignore')
+                tokens.append(x)
+            except:
+                pass
+
+        _info['keywords'] = tokens[:10]
+        _info['words'] = tokens
+        _info['numUsers'] = len(users)
+        _info['numGeoUsers'] = 0
+        _info['numTweets'] = len(tweets)
+        _info['numGeoTweets'] = 0
+        _info['retweetRate'] = 0.0
+        if len(tweets) > 0:
+            _info['retweetRate'] = num_rt / len(tweets)
+        _info['significance'] = self.sig
+        _info['span'] = (self.end - self.start).total_seconds() / (60*60) # hours
+
+        event_output.put(self.event_id, _event)
+
+        print 'put:\t' + str(_event) #debugging
+
+    def print_self(self):
+        print '[' + str(self.start) + ',' + str(self.end) + ']' + '\t' + str(self.end - self.start) + '\t' + str(self.sig) + '\t' + str(self.ordered_keywords())
+        #for kw in sorted(self.keywords, key = lambda x : self.keywords[x].records[0][0]):
+        for kw in sorted(self.keywords, key = lambda x : self.keywords[x].span(), reverse=True):
+            self.keywords[kw].print_self()
+        for th in self.thread:
+            print str(th) + ':' + th[-1].original_tweet.str
+        print '---------------------------------'
+
+
+
+    def new_thread(self, sig_instance):
+        _t, _count, _ewma, _ewmvar, _sig, _keywords, _ptweet = sig_instance
+        self.start = _t
+        self.end = _t
+
+        for _kw in _keywords:
+            _keyword = Keyword(_kw)
+            _keyword.appear(_t, _sig)
+            self.keywords[_kw] = _keyword
+
+        self.thread.append(sig_instance)
+        self.sig = _sig
+
+    def get_hashtags(self, kws):
+        hashtags = set(filter(lambda x: x.startswith('#'), self.keywords))
+        similar_words = set()
+        for ht in hashtags:
+            if ht[1:] in self.keywords:
+                similar_words.add(ht[1:])
+        hashtags1 = hashtags.union(similar_words)
+
+        hashtags2 = set(filter(lambda x: x.startswith('#'), kws))
+        for kw in kws:
+            if kw in hashtags1:
+                hashtags2.add(kw)
+
+        return hashtags1, hashtags2
+
+    def similarity(self, sig_instance):
+        _t, _count, _ewma, _ewmvar, _sig, _keywords, _ptweet = sig_instance
+
+        if _t - self.end > datetime.timedelta(days=1):
+            return 0.0
+
+        #hashtags1 = set(filter(lambda x: x.startswith('#'), self.keywords))
+        #hashtags2 = set(filter(lambda x: x.startswith('#'), _keywords))
+        hashtags1, hashtags2 = self.get_hashtags(_keywords)
+
+        if len(hashtags1.intersection(hashtags2)) < 1:
+            if _t - self.end > datetime.timedelta(minutes=_THREAD_GAP):
+                return 0.0
+
+            screennames1 = set(filter(lambda x: x.startswith('@'), self.keywords))
+            screennames2 = set(filter(lambda x: x.startswith('@'), _keywords))
+
+            purewords1 = set(self.keywords.keys()) - hashtags1 - screennames1
+            purewords2 = _keywords - hashtags2 - screennames2
+
+            intersection1 = len(purewords1 & purewords2) + 0.
+            if intersection1 == 0:
+                return 0.0
+            sim1 = intersection1 / len(purewords2)
+
+            intersection2 = len(set(self.keywords.keys()) & _keywords) + 0.
+            sim2 = intersection2 / len(_keywords)
+
+            sim = min(sim1, sim2)
+
+            if len(screennames1.intersection(screennames2)) >= 1:
+                if intersection1 < 2:
+                    return 0.0
+            else:
+                if intersection1 < 3:
+                    return 0.0
+
+                if sim < 0.66:
+                    return 0.0
+
+                return sim
+
+        return len(set(self.keywords.keys()) & _keywords) + 0.
+
+    def add_to_thread(self, sig_instance):
+        _t, _count, _ewma, _ewmvar, _sig, _keywords, _ptweet = sig_instance
+
+        if _sig > self.sig:
+            self.sig = _sig
+
+        dt = _t - self.end
+
+        previous_len = len(self.keywords)
+
+        self.end = _t
+        self.thread.append(sig_instance)
+        for _kw in _keywords:
+            if _kw not in self.keywords:
+                self.keywords[_kw] = Keyword(_kw)
+            self.keywords[_kw].appear(_t, _sig)
+
+        span = self.end - self.start
+        if span > datetime.timedelta(minutes=5):
+            if len(self.keywords) > previous_len or dt > datetime.timedelta(hours=1):
+                self.output_event()
+
+        return True
+
+
+class DetectionComponent(ts_stream.ItemStream):
+
+    def __init__(self, _ptw_stream):
+        self.ptw_stream = _ptw_stream
+
+        _wz = eval(exp_config.get('detection', 'window_size'))
+        _cycle = eval(exp_config.get('detection', 'cycle'))
+        _average = eval(exp_config.get('detection', 'average'))
+        print 'set signi parameters:' + str(fast_signi.SignificanceScorer.set_window_size(_wz, _cycle, _average))
+        self.processor = signi_processor.SigProcessor()
+
+        self.threads = list()
+
+        _start_y = int(exp_config.get('detection', 'start_y'))
+        _start_m = int(exp_config.get('detection', 'start_m'))
+        _start_d = int(exp_config.get('detection', 'start_d'))
+
+        self._start_t = datetime.datetime(_start_y, _start_m, _start_d)
+
+        self.stop_tokens = {'instagram', 'facebook', 'twitter', 'update', 'pic', 'cr', 'damn'}
+
+    def token_filter(self, tokens):
+        ret = set()
+
+        for token in tokens:
+            # stop tokens
+            if token in self.stop_tokens:
+                continue
+
+            # filter len <= 1
+            if len(token) < 2:
+                continue
+
+            # filter time token
+            try:
+                datetime.datetime.strptime(token, '%y%m%d')
+            except:
+                ret.add(token)
+
+        return ret
+
+    def process(self, sig_instance):
+
+        _t, _count, _ewma, _ewmvar, _sig, _keywords, _ptweet = sig_instance
+
+        if _t < self._start_t:
+            return 0.0
+
+        _keywords = self.token_filter(_keywords)
+        if len(_keywords) < 2:
+            return 0.0
+        sig_instance = _t, _count, _ewma, _ewmvar, _sig, _keywords, _ptweet
+
+        #print 'SIGNI#\t' + str(_t) + '\t' + str(_sig) + '\t' + str(_keywords) + '\t' + _ptweet.original_tweet.str #debugging
+        #return 0.0 #debugging
+
+        create_new = True
+
+        greatest_sim = 0.0
+        host_thread = None
+        for thread in reversed(self.threads):
+            sim = thread.similarity(sig_instance)
+            if sim > greatest_sim:
+                greatest_sim = sim
+                host_thread = thread
+
+        if greatest_sim > 0.0:
+            host_thread.add_to_thread(sig_instance)
+            create_new = False
+
+        if create_new:
+            thread = Slice()
+            thread.new_thread(sig_instance)
+
+            self.threads.append(thread)
+
+            return _sig
+
+        return 0.0
+
+    def next(self):
+        ptweet = self.ptw_stream.next()
+
+        if ptweet is ts_stream.End_Of_Stream:
+            return ts_stream.End_Of_Stream
+
+        if ptweet is None:
+            return None
+
+        sig_instance = self.processor.process(ptweet)
+
+        if sig_instance is not None:
+            output = self.process(sig_instance)
+
+            return ptweet, output, sig_instance[-2]
+
+        return ptweet, 0.0, None
+
+    def print_all(self):
+        #slices = sorted(self.threads, key=lambda x: x.sig, reverse=True)
+        #slices = sorted(self.threads, key=lambda x: x.end - x.start, reverse=True)
+        #slices = sorted(self.threads, key=lambda x: len(x.keywords), reverse=True)
+        slices = sorted(self.threads, key=lambda x: x.start)
+        for slice in slices:
+            span = slice.end - slice.start
+            if span > datetime.timedelta(minutes=5):
+                #slice.print_self()
+                slice.output_event()
+
+def test():
+    sig_threshold = eval(exp_config.get('detection', 'signi_threshold'))
+    detection_component = DetectionComponent(None)
+    f = open('./sig_output_tweets.txt', 'r')
+    count = 0
+    for line in f:
+        if line.startswith('SIGNI#'):
+            terms = line.split('\t')
+            _t = datetime.datetime.strptime(terms[1], '%Y-%m-%d %H:%M:%S')
+            _sig = eval(terms[2])
+            _keywords = eval(terms[3])
+            _str = terms[4]
+
+            if _sig < sig_threshold:
+                continue
+
+            _ptweet = ts_stream.PreprocessedTweetItem(None, None, None, ts_stream.RawTweetItem(None, None, _str))
+
+            detection_component.process((_t, 0, 0, 0, _sig, _keywords, _ptweet))
+
+            count += 1
+
+            if (count % 100) == 0:
+                print count
+
+    detection_component.print_all()
+
+
+def estimate(t, seq):
+
+    for i in range(len(seq)):
+        if (t >= seq[i][0]) and (t < seq[i+1][0]):
+            return (seq[i][1] * (t - seq[i][0]).total_seconds() + seq[i+1][1] * (seq[i+1][0] - t).total_seconds()) / 3600
+
+
+def summary():
+    counts = list()
+    f = open('../sg50_count.txt', 'r')
+    for line in f:
+        terms = line.split('\t')
+        t = datetime.datetime.strptime(terms[0], '%Y-%m-%d %H:%M:%S')
+        c = eval(terms[1])
+        counts.append((t, c))
+
+    f = open('./temp_output16.txt','r')
+    threads = [] # (t, sig, set, content)
+    flag = False
+    for line in f:
+        if line.startswith('[2015'):
+            if flag:
+                break
+            flag = True
+        if line.startswith('(datetime.'):
+            terms = line.split(')')[1].split(',')
+            sig = eval(terms[4])
+
+            s_str = line.split(')')[1]
+            index = s_str.index('set')
+            s = eval(s_str[index:] + ')')
+
+            index = line.index(')')
+            t = eval(line[1:index + 1])
+
+            index = line.index('>)')
+            content = line[index+3: -1]
+
+            current_thread = (t, sig, s, content)
+
+            flag = False
+            for id in range(len(threads)):
+                if s == threads[id][2]:
+                    if sig > threads[id][1]:
+                        #threads[id] = current_thread
+                        pass
+                    flag = True
+                    break
+
+            if flag:
+                continue
+
+            if len(threads) > 0:
+                if t - threads[-1][0] < datetime.timedelta(minutes=25):
+                    if sig > threads[-1][1] :
+                        threads[-1] = (t, sig, s, content)
+                else:
+                    threads.append((t, sig, s, content))
+            else:
+                threads.append((t, sig, s, content))
+
+    for thread in threads:
+        print thread
+
+
